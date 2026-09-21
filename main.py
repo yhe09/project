@@ -85,6 +85,9 @@ df_sigungu['고령화_구간'] = pd.cut(
     right=False
 )
 
+# Plotly 오류 방지를 위해 범주형(Categorical)을 문자열(str)로 변환
+df_sigungu['고령화_구간_str'] = df_sigungu['고령화_구간'].astype(str)
+
 # 시각적 대비감을 살린 5단계 커스텀 색상 팔레트
 color_sequence = ["#2b83ba", "#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
 color_map = dict(zip(labels, color_sequence))
@@ -102,18 +105,14 @@ fig_treemap = px.treemap(
     df_sigungu,
     path=[px.Constant("전국"), '시도', '시군구'], # 계층 구조: 전국 -> 시도 -> 시군구
     values='total_pop',                        # 상자 크기: 인구수
-    color='고령화_구간',                        # 색상: 고령화 구간
-    color_discrete_map=color_map,
-    category_orders={'고령화_구간': labels},
-    hover_data={
-        'total_pop': ':,d',
-        'pop_65plus': ':,d',
-        '고령화율': ':.2f'
-    }
+    color='고령화_구간_str',                    # 색상: 고령화 구간 (문자열)
+    color_discrete_map=color_map,              # 색상 매핑
+    category_orders={'고령화_구간_str': labels},  # 범례 순서 정렬
+    custom_data=['total_pop', 'pop_65plus', '고령화율'] # 툴팁 표기용
 )
 
 fig_treemap.update_traces(
-    hovertemplate="<b>%{label}</b><br>총인구: %{customdata[0]}명<br>65세 이상 인구: %{customdata[1]}명<br>고령화율: %{customdata[2]}%<extra></extra>"
+    hovertemplate="<b>%{label}</b><br>총인구: %{customdata[0]:,}명<br>65세 이상 인구: %{customdata[1]:,}명<br>고령화율: %{customdata[2]:.2f}%<extra></extra>"
 )
 
 fig_treemap.update_layout(
