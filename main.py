@@ -108,7 +108,7 @@ fig_treemap = px.treemap(
     color='고령화_구간_str',                    # 색상: 고령화 구간 (문자열)
     color_discrete_map=color_map,              # 색상 매핑
     category_orders={'고령화_구간_str': labels},  # 범례 순서 정렬
-    custom_data=['total_pop', 'pop_65plus', '고령화율'] # 툴팁 표기용
+    hover_data=['total_pop', 'pop_65plus', '고령화율'] # custom_data 대신 hover_data 사용
 )
 
 fig_treemap.update_traces(
