@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import requests
 
 # -----------------------------------------------------------------------------
 # 1. 페이지 기본 설정 및 스타일
@@ -85,40 +84,27 @@ df_sigungu['고령화_구간'] = pd.cut(
     right=False
 )
 
-# Plotly 오류 방지를 위해 범주형(Categorical)을 문자열(str)로 변환
-df_sigungu['고령화_구간_str'] = df_sigungu['고령화_구간'].astype(str)
-
-# 시각적 대비감을 살린 5단계 커스텀 색상 팔레트
-color_sequence = ["#2b83ba", "#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
-color_map = dict(zip(labels, color_sequence))
-
 # -----------------------------------------------------------------------------
 # 4. 시군구 인구수 x 고령화 비율 트리맵(Treemap)
 # -----------------------------------------------------------------------------
 st.subheader("📦 시도/시군구별 인구 규모 및 고령화율 트리맵")
 st.markdown("""
 - **상자 크기**: 시군구 전체 인구수 (인구가 많을수록 상자가 큼)
-- **상자 색상**: 고령화 비율 5단계 구간 (붉은색일수록 고령화 심각)
+- **상자 색상**: 고령화 비율 (%) 연속형 컬러 스케일 (붉은색일수록 고령화 심각)
 """)
 
+# 오류 발생 위험 요소를 모두 배제한 가장 안정적인 연속형 트리맵 생성
 fig_treemap = px.treemap(
     df_sigungu,
-    path=[px.Constant("전국"), '시도', '시군구'], # 계층 구조: 전국 -> 시도 -> 시군구
-    values='total_pop',                        # 상자 크기: 인구수
-    color='고령화_구간_str',                    # 색상: 고령화 구간 (문자열)
-    color_discrete_map=color_map,              # 색상 매핑
-    category_orders={'고령화_구간_str': labels},  # 범례 순서 정렬
-    hover_data=['total_pop', 'pop_65plus', '고령화율'] # custom_data 대신 hover_data 사용
-)
-
-fig_treemap.update_traces(
-    hovertemplate="<b>%{label}</b><br>총인구: %{customdata[0]:,}명<br>65세 이상 인구: %{customdata[1]:,}명<br>고령화율: %{customdata[2]:.2f}%<extra></extra>"
+    path=[px.Constant("전국"), '시도', '시군구'],
+    values='total_pop',
+    color='고령화율',
+    color_continuous_scale="Reds"
 )
 
 fig_treemap.update_layout(
     margin=dict(t=20, l=10, r=10, b=10),
-    height=600,
-    legend_title_text="고령화 비율 구간"
+    height=600
 )
 
 st.plotly_chart(fig_treemap, use_container_width=True)
@@ -129,7 +115,6 @@ st.plotly_chart(fig_treemap, use_container_width=True)
 st.markdown("---")
 st.subheader("🧩 광역지자체(시도)별 고령화 구간 분포 매트릭스")
 
-# 시도 x 고령화 구간 교차표(Pivot Table) 생성
 pivot_df = pd.crosstab(df_sigungu['시도'], df_sigungu['고령화_구간'])
 pivot_df = pivot_df.reindex(columns=labels, fill_value=0)
 
