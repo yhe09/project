@@ -1,466 +1,188 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import plotly.express as px
+import requests
 
-
-# ============================================================
-# 기본 설정
-# ============================================================
-
+# -----------------------------------------------------------------------------
+# 1. 페이지 기본 설정 및 스타일
+# -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="전국 고령화율 한눈에 보기",
-    page_icon="🇰🇷",
+    page_title="전국 고령화 트렌드 시각화",
+    page_icon="👵",
     layout="wide"
 )
 
+st.title("👵 한눈에 보는 전국 시군구 고령화 구조")
+st.caption("인구 규모(상자 크기)와 고령화율(색상)을 동시에 분석할 수 있는 시각화 대시보드입니다.")
 
-# ============================================================
-# 데이터 주소
-# ============================================================
-
-POPULATION_URL = (
-    "https://raw.githubusercontent.com/greatsong/modudata/main/"
-    "data/population_yearly.csv.gz"
-)
-
-
-# ============================================================
-# 데이터 불러오기
-# ============================================================
-
+# -----------------------------------------------------------------------------
+# 2. 데이터 불러오기 (캐싱 처리로 속도 최적화)
+# -----------------------------------------------------------------------------
 @st.cache_data
 def load_data():
-
-    # 코드가 숫자로 바뀌지 않도록 문자열로 읽습니다.
-    df = pd.read_csv(
-        POPULATION_URL,
-        compression="gzip",
-        dtype={"코드": str}
-    )
-
-    # 필요한 열이 있는지 확인합니다.
-    required_columns = {
-        "연도",
-        "시도",
-        "시군구",
-        "코드"
-    }
-
-    missing_columns = required_columns - set(df.columns)
-
-    if missing_columns:
-        raise ValueError(
-            "필수 열이 없습니다: "
-            + ", ".join(sorted(missing_columns))
-        )
-
-    # 코드 앞에 0이 필요한 경우를 대비합니다.
-    df["코드"] = (
-        df["코드"]
-        .astype(str)
-        .str.replace(r"\.0$", "", regex=True)
-        .str.zfill(8)
-    )
-
-    # 가장 최신 연도만 사용합니다.
-    latest_year = df["연도"].max()
-
-    df = df[
-        df["연도"] == latest_year
-    ].copy()
-
-
-    # ========================================================
-    # 나이별 인구 열 찾기
-    # ========================================================
-
-    # '계_'로 시작하는 열은 남녀 합계입니다.
-    total_columns = [
-        column
-        for column in df.columns
-        if column.startswith("계_")
-    ]
-
-    # 65세 이상 열만 골라냅니다.
-    elderly_columns = []
-
-    for column in total_columns:
-
-        age = column[2:]
-
-        if age == "100세 이상":
-            elderly_columns.append(column)
-
-        elif age.endswith("세"):
-
-            try:
-                age_number = int(age[:-1])
-
-                if age_number >= 65:
-                    elderly_columns.append(column)
-
-            except ValueError:
-                pass
-
-
-    if not total_columns:
-        raise ValueError(
-            "'계_'로 시작하는 나이별 인구 열을 찾지 못했습니다."
-        )
-
-    if not elderly_columns:
-        raise ValueError(
-            "65세 이상 인구 열을 찾지 못했습니다."
-        )
-
-
-    # ========================================================
-    # 숫자형으로 변환
-    # ========================================================
-
-    for column in total_columns:
-
-        df[column] = pd.to_numeric(
-            df[column],
-            errors="coerce"
-        ).fillna(0)
-
-
-    # ========================================================
-    # 전체 인구 / 65세 이상 인구 계산
-    # ========================================================
-
-    df["전체인구"] = df[
-        total_columns
-    ].sum(axis=1)
-
-    df["65세이상"] = df[
-        elderly_columns
-    ].sum(axis=1)
-
-
-    # ========================================================
-    # 시군구 코드 만들기
-    # ========================================================
-
-    # 읍·면·동 코드의 앞 5자리가 시군구 코드입니다.
-    df["시군구코드"] = df[
-        "코드"
-    ].str[:5]
-
-
-    # ========================================================
-    # 시군구별로 합치기
-    # ========================================================
-
-    result = (
-        df.groupby(
-            "시군구코드",
-            as_index=False
-        )
-        .agg(
-            시도=("시도", "first"),
-            시군구=("시군구", "first"),
-            전체인구=("전체인구", "sum"),
-            **{
-                "65세이상": (
-                    "65세이상",
-                    "sum"
-                )
-            }
-        )
-    )
-
-
-    # ========================================================
-    # 고령화율 계산
-    # ========================================================
-
-    result["고령화율"] = (
-        result["65세이상"]
-        / result["전체인구"]
-        * 100
-    )
-
-
-    # 계산할 수 없는 지역 제거
-    result = result[
-        result["고령화율"].notna()
-        & result["고령화율"].notnull()
-    ].copy()
-
-    return result, latest_year
-
-
-# ============================================================
-# 색상 정하기
-# ============================================================
-
-def get_color(rate):
-
-    if rate < 19:
-        return "#E8F4F8"
-
-    elif rate < 23:
-        return "#B7DFE3"
-
-    elif rate < 28:
-        return "#70C5B0"
-
-    elif rate < 38:
-        return "#32A866"
-
-    else:
-        return "#087F3F"
-
-
-# ============================================================
-# 시군구 색깔 격자 만들기
-# ============================================================
-
-def show_color_grid(data):
-
-    # 시도별로 묶습니다.
-    grouped = data.groupby(
-        "시도",
-        sort=True
-    )
-
-
-    # --------------------------------------------------------
-    # 화면에 들어갈 HTML
-    # --------------------------------------------------------
-
-    html_parts = []
-
-
-    # 각 시도를 하나씩 만듭니다.
-    for sido, group in grouped:
-
-        # 같은 시도 안에서는 고령화율 순서로 정렬합니다.
-        group = group.sort_values(
-            ["고령화율", "시군구"]
-        )
-
-
-        # 시군구 타일을 담을 부분
-        tiles = []
-
-
-        for _, row in group.iterrows():
-
-            name = str(row["시군구"])
-            rate = float(row["고령화율"])
-
-            color = get_color(rate)
-
-
-            # 시군구 하나 = 타일 하나
-            tile = f"""
-            <div
-                title="{name} · 고령화율 {rate:.2f}%"
-                style="
-                    width:104px;
-                    min-height:48px;
-                    box-sizing:border-box;
-                    padding:7px 8px;
-                    background:{color};
-                    border:1px solid rgba(0,0,0,0.08);
-                    border-radius:8px;
-                    display:flex;
-                    flex-direction:column;
-                    justify-content:center;
-                    line-height:1.15;
-                "
-            >
-                <span
-                    style="
-                        font-size:12px;
-                        overflow:hidden;
-                        text-overflow:ellipsis;
-                        white-space:nowrap;
-                    "
-                >
-                    {name}
-                </span>
-
-                <span
-                    style="
-                        font-size:11px;
-                        margin-top:4px;
-                        opacity:0.8;
-                    "
-                >
-                    {rate:.1f}%
-                </span>
-            </div>
-            """
-
-            tiles.append(tile)
-
-
-        # 시도 하나의 행을 만듭니다.
-        row_html = f"""
-        <div style="margin-bottom:18px;">
-
-            <div
-                style="
-                    font-size:15px;
-                    font-weight:700;
-                    margin-bottom:7px;
-                "
-            >
-                {sido}
-            </div>
-
-            <div
-                style="
-                    display:flex;
-                    flex-wrap:wrap;
-                    gap:6px;
-                "
-            >
-                {"".join(tiles)}
-            </div>
-
-        </div>
-        """
-
-        html_parts.append(row_html)
-
-
-    # --------------------------------------------------------
-    # 최종 출력
-    # --------------------------------------------------------
-
-    final_html = f"""
-    <div style="width:100%;">
-        {"".join(html_parts)}
-    </div>
-    """
-
-
-    st.markdown(
-        final_html,
-        unsafe_allow_html=True
-    )
-
-
-# ============================================================
-# 실행
-# ============================================================
-
-try:
-
-    data, latest_year = load_data()
-
-except Exception as error:
-
-    st.error(
-        "데이터를 불러오는 중 문제가 발생했습니다."
-    )
-
-    st.exception(error)
-
-    st.stop()
-
-
-# ============================================================
-# 제목
-# ============================================================
-
-st.title("🇰🇷 전국 고령화율 한눈에 보기")
-
-st.caption(
-    f"{latest_year}년 기준 · 시군구별 65세 이상 인구 비율"
-)
-
-
-# ============================================================
-# 색깔 격자
-# ============================================================
-
-st.markdown(
-    "### 🎨 시도별 시군구 고령화율"
-)
-
-st.write(
-    "각 칸은 하나의 시군구입니다. "
-    "색이 진할수록 65세 이상 인구 비율이 높습니다."
-)
-
-
-show_color_grid(data)
-
-
-# ============================================================
-# 범례
-# ============================================================
-
-st.markdown(
-    "### 범례"
-)
-
-
-legend = [
-    ("19% 미만", "#E8F4F8"),
-    ("19% 이상 ~ 23% 미만", "#B7DFE3"),
-    ("23% 이상 ~ 28% 미만", "#70C5B0"),
-    ("28% 이상 ~ 38% 미만", "#32A866"),
-    ("38% 이상", "#087F3F"),
+    pop_url = "https://raw.githubusercontent.com/greatsong/modudata/main/data/population_yearly.csv.gz"
+    
+    # '코드' 열은 앞자리 '0'이 유지되도록 문자열(str) 유형으로 읽어옵니다.
+    df = pd.read_csv(pop_url, dtype={'코드': str})
+    
+    # 가장 최신 연도 추출
+    latest_year = df['연도'].max()
+    df_latest = df[df['연도'] == latest_year].copy()
+    
+    # 시군구 코드 추출 (10자리 행정동 코드 중 앞 5자리)
+    df_latest['sigungu_code'] = df_latest['코드'].str[:5]
+    
+    # 65세 이상 '계_' 열 이름 찾기
+    age_cols = [col for col in df_latest.columns if col.startswith('계_')]
+    
+    def get_age(col_name):
+        age_str = col_name.replace('계_', '').replace('세 이상', '').replace('세', '')
+        return int(age_str)
+    
+    col_total = [col for col in age_cols if get_age(col) >= 0]     # 전체 인구
+    col_65plus = [col for col in age_cols if get_age(col) >= 65]  # 65세 이상 인구
+    
+    # 시군구 코드별로 인구 합산
+    df_latest['total_pop'] = df_latest[col_total].sum(axis=1)
+    df_latest['pop_65plus'] = df_latest[col_65plus].sum(axis=1)
+    
+    # 시군구 단위 그룹화
+    grouped = df_latest.groupby('sigungu_code').agg({
+        '시도': 'first',
+        '시군구': 'first',
+        'total_pop': 'sum',
+        'pop_65plus': 'sum'
+    }).reset_index()
+    
+    # 고령화 비율 계산 (%)
+    grouped['고령화율'] = (grouped['pop_65plus'] / grouped['total_pop']) * 100
+    grouped['고령화율'] = grouped['고령화율'].round(2)
+    
+    return latest_year, grouped
+
+with st.spinner("최신 인구 데이터를 분석하고 시각화 요소를 생성하는 중입니다..."):
+    latest_year, df_sigungu = load_data()
+
+st.sidebar.markdown(f"**기준 연도**: {latest_year}년")
+
+# -----------------------------------------------------------------------------
+# 3. 5단계 구간 나누기 (19%, 23%, 28%, 38% 기준)
+# -----------------------------------------------------------------------------
+bins = [0, 19, 23, 28, 38, 100]
+labels = [
+    "19% 미만",
+    "19% 이상 ~ 23% 미만",
+    "23% 이상 ~ 28% 미만",
+    "28% 이상 ~ 38% 미만",
+    "38% 이상"
 ]
 
+df_sigungu['고령화_구간'] = pd.cut(
+    df_sigungu['고령화율'], 
+    bins=bins, 
+    labels=labels, 
+    right=False
+)
 
-legend_columns = st.columns(5)
+# 시각적 대비감을 살린 5단계 커스텀 색상 팔레트
+color_sequence = ["#2b83ba", "#abdda4", "#ffffbf", "#fdae61", "#d7191c"]
+color_map = dict(zip(labels, color_sequence))
 
+# -----------------------------------------------------------------------------
+# 4. 시군구 인구수 x 고령화 비율 트리맵(Treemap)
+# -----------------------------------------------------------------------------
+st.subheader("📦 시도/시군구별 인구 규모 및 고령화율 트리맵")
+st.markdown("""
+- **상자 크기**: 시군구 전체 인구수 (인구가 많을수록 상자가 큼)
+- **상자 색상**: 고령화 비율 5단계 구간 (붉은색일수록 고령화 심각)
+""")
 
-for column, (label, color) in zip(
-    legend_columns,
-    legend
-):
+fig_treemap = px.treemap(
+    df_sigungu,
+    path=[px.Constant("전국"), '시도', '시군구'], # 계층 구조: 전국 -> 시도 -> 시군구
+    values='total_pop',                        # 상자 크기: 인구수
+    color='고령화_구간',                        # 색상: 고령화 구간
+    color_discrete_map=color_map,
+    category_orders={'고령화_구간': labels},
+    hover_data={
+        'total_pop': ':,d',
+        'pop_65plus': ':,d',
+        '고령화율': ':.2f'
+    }
+)
 
-    with column:
+fig_treemap.update_traces(
+    hovertemplate="<b>%{label}</b><br>총인구: %{customdata[0]}명<br>65세 이상 인구: %{customdata[1]}명<br>고령화율: %{customdata[2]}%<extra></extra>"
+)
 
-        st.markdown(
-            f"""
-            <div
-                style="
-                    display:flex;
-                    align-items:center;
-                    gap:7px;
-                "
-            >
+fig_treemap.update_layout(
+    margin=dict(t=20, l=10, r=10, b=10),
+    height=600,
+    legend_title_text="고령화 비율 구간"
+)
 
-                <span
-                    style="
-                        display:inline-block;
-                        width:18px;
-                        height:18px;
-                        border-radius:4px;
-                        background:{color};
-                        border:1px solid #aaa;
-                    "
-                ></span>
+st.plotly_chart(fig_treemap, use_container_width=True)
 
-                <span>
-                    {label}
-                </span>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-
-# ============================================================
-# 간단한 요약
-# ============================================================
-
+# -----------------------------------------------------------------------------
+# 5. 시도별 고령화 구간 분포 히트맵 매트릭스
+# -----------------------------------------------------------------------------
 st.markdown("---")
+st.subheader("🧩 광역지자체(시도)별 고령화 구간 분포 매트릭스")
 
-st.caption(
-    "고령화율 = 65세 이상 인구 ÷ 전체 인구 × 100"
+# 시도 x 고령화 구간 교차표(Pivot Table) 생성
+pivot_df = pd.crosstab(df_sigungu['시도'], df_sigungu['고령화_구간'])
+pivot_df = pivot_df.reindex(columns=labels, fill_value=0)
+
+fig_heatmap = px.imshow(
+    pivot_df,
+    labels=dict(x="고령화 비율 구간", y="시도", color="시군구 수"),
+    x=labels,
+    y=pivot_df.index,
+    color_continuous_scale="YlOrRd",
+    aspect="auto",
+    text_auto=True
 )
 
-st.caption(
-    "읍·면·동 인구를 행정동 코드 앞 5자리인 시군구 코드 기준으로 합산했습니다."
+fig_heatmap.update_layout(
+    height=500,
+    margin=dict(t=20, l=10, r=10, b=10)
 )
+
+st.plotly_chart(fig_heatmap, use_container_width=True)
+
+# -----------------------------------------------------------------------------
+# 6. 상위 10개 / 하위 10개 시군구 표 나란히 출력
+# -----------------------------------------------------------------------------
+st.markdown("---")
+st.subheader("📊 고령화 비율 극단값 비교 (상위 / 하위 10개 지역)")
+
+top10 = df_sigungu.sort_values(by='고령화율', ascending=False).head(10)[['시도', '시군구', 'total_pop', '고령화율']]
+top10 = top10.reset_index(drop=True)
+top10.index = top10.index + 1
+
+bottom10 = df_sigungu.sort_values(by='고령화율', ascending=True).head(10)[['시도', '시군구', 'total_pop', '고령화율']]
+bottom10 = bottom10.reset_index(drop=True)
+bottom10.index = bottom10.index + 1
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("##### 🔴 고령화 비율이 가장 높은 지역 TOP 10")
+    st.dataframe(
+        top10.rename(columns={'total_pop': '총인구수'}).style.format({
+            '총인구수': '{:,}명',
+            '고령화율': '{:.2f}%'
+        }),
+        use_container_width=True
+    )
+
+with col2:
+    st.markdown("##### 🟢 고령화 비율이 가장 낮은 지역 TOP 10")
+    st.dataframe(
+        bottom10.rename(columns={'total_pop': '총인구수'}).style.format({
+            '총인구수': '{:,}명',
+            '고령화율': '{:.2f}%'
+        }),
+        use_container_width=True
+    )
