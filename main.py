@@ -4,6 +4,7 @@ from google.genai import types
 from PIL import Image
 from io import BytesIO
 import json
+import time
 
 
 # -----------------------------
@@ -145,6 +146,85 @@ keywords
 
 
 # -----------------------------
+# Gemini 호출 함수
+# -----------------------------
+def generate_with_gemini(contents):
+    """
+    1차: Gemini 3.8 Flash
+    2차: Gemini 3.7 Flash
+    일시적인 503 오류가 발생하면 다음 모델로 전환
+    """
+
+    if client is None:
+        return None, "Gemini API 키가 설정되지 않았습니다."
+
+    models = [
+        "gemini-3.8-flash",
+        "gemini-3.7-flash"
+    ]
+
+    last_error = ""
+
+    for model in models:
+
+        for attempt in range(2):
+
+            try:
+
+                response = client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=RESULT_SCHEMA
+                    )
+                )
+
+                if response.text:
+                    return response, None
+
+                last_error = "AI가 분석 결과를 반환하지 않았습니다."
+
+            except Exception as e:
+
+                error_message = str(e)
+                last_error = error_message
+
+                # 503: 서버가 일시적으로 처리할 수 없는 경우
+                if "503" in error_message or "UNAVAILABLE" in error_message:
+
+                    # 첫 번째 모델에서 잠시 기다린 후 재시도
+                    if attempt == 0:
+                        time.sleep(2)
+                        continue
+
+                    # 두 번째 모델로 넘어감
+                    break
+
+                # 429: 무료 사용량/요청 제한
+                if (
+                    "429" in error_message
+                    or "quota" in error_message.lower()
+                    or "resource exhausted" in error_message.lower()
+                ):
+                    return None, (
+                        "Gemini 무료 사용량 또는 요청 한도에 도달했어요. "
+                        "잠시 후 다시 시도해주세요."
+                    )
+
+                # API 키나 요청 형식 등의 오류
+                return None, (
+                    "AI 분석 중 오류가 발생했습니다.\n\n"
+                    + error_message
+                )
+
+    return None, (
+        "현재 Gemini AI 서버가 혼잡해서 분석을 완료하지 못했어요.\n\n"
+        "잠시 후 다시 '지문 분석하기'를 눌러주세요."
+    )
+
+
+# -----------------------------
 # AI 분석 함수
 # -----------------------------
 def analyze_with_ai(
@@ -155,116 +235,64 @@ def analyze_with_ai(
     if client is None:
         return None, "Gemini API 키가 설정되지 않았습니다."
 
+    if passage is not None:
+
+        prompt = (
+            SYSTEM_PROMPT
+            + "\n\n"
+            + "다음 영어 지문을 분석해줘.\n\n"
+            + passage
+        )
+
+        response, error = generate_with_gemini(prompt)
+
+    elif image is not None:
+
+        prompt = (
+            SYSTEM_PROMPT
+            + "\n\n"
+            + "첨부된 사진 속 영어 지문을 읽고 분석해줘."
+        )
+
+        response, error = generate_with_gemini(
+            [
+                prompt,
+                image
+            ]
+        )
+
+    else:
+
+        return None, "분석할 지문이 없습니다."
+
+    if error:
+        return None, error
+
     try:
 
-        # -------------------------
-        # 직접 입력
-        # -------------------------
-        if passage is not None:
+        result = json.loads(response.text)
 
-            prompt = (
-                SYSTEM_PROMPT
-                + "\n\n"
-                + "다음 영어 지문을 분석해줘.\n\n"
-                + passage
-            )
+    except Exception:
+        return None, "AI의 분석 결과를 읽는 중 오류가 발생했습니다."
 
-            response = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=RESULT_SCHEMA
-                )
-            )
+    required_keys = [
+        "original_text",
+        "korean_title",
+        "english_title",
+        "summary",
+        "vocabulary",
+        "grammar",
+        "keywords"
+    ]
 
+    for key in required_keys:
 
-        # -------------------------
-        # 사진 입력
-        # -------------------------
-        elif image is not None:
-
-            prompt = (
-                SYSTEM_PROMPT
-                + "\n\n"
-                + "첨부된 사진 속 영어 지문을 읽고 분석해줘."
-            )
-
-            response = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=[
-                    prompt,
-                    image
-                ],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=RESULT_SCHEMA
-                )
-            )
-
-        else:
-
-            return None, "분석할 지문이 없습니다."
-
-
-        # -------------------------
-        # AI 응답 확인
-        # -------------------------
-        if not response.text:
-
-            return None, "AI가 분석 결과를 반환하지 않았습니다."
-
-
-        result = json.loads(
-            response.text
-        )
-
-
-        # -------------------------
-        # 필수 항목 확인
-        # -------------------------
-        required_keys = [
-            "original_text",
-            "korean_title",
-            "english_title",
-            "summary",
-            "vocabulary",
-            "grammar",
-            "keywords"
-        ]
-
-        for key in required_keys:
-
-            if key not in result:
-
-                return None, (
-                    f"AI 분석 결과에 '{key}' 항목이 없습니다."
-                )
-
-
-        return result, None
-
-
-    except Exception as e:
-
-        error_message = str(e)
-
-        # 무료 사용량 초과
-        if (
-            "429" in error_message
-            or "quota" in error_message.lower()
-            or "resource exhausted" in error_message.lower()
-        ):
-
+        if key not in result:
             return None, (
-                "Gemini 무료 사용량 한도에 도달했어요. "
-                "잠시 후 다시 시도해주세요."
+                f"AI 분석 결과에 '{key}' 항목이 없습니다."
             )
 
-        return None, (
-            f"AI 분석 중 오류가 발생했습니다.\n\n"
-            f"{error_message}"
-        )
+    return result, None
 
 
 # -----------------------------
@@ -276,17 +304,12 @@ def save_to_exam_scope(
 ):
 
     if not passage.strip():
-
         return False
 
-
-    # 중복 저장 확인
     for item in st.session_state.exam_scope:
 
         if item["passage"] == passage:
-
             return False
-
 
     st.session_state.exam_scope.append(
         {
@@ -315,7 +338,6 @@ st.divider()
 # -----------------------------
 st.subheader("📝 영어 지문")
 
-
 input_method = st.radio(
     "지문 입력 방법",
     [
@@ -325,9 +347,7 @@ input_method = st.radio(
     horizontal=True
 )
 
-
 passage = ""
-
 uploaded_image = None
 
 
@@ -359,7 +379,6 @@ else:
         ],
         help="영어 지문이 잘 보이도록 사진을 업로드하세요."
     )
-
 
     if uploaded_image is not None:
 
@@ -412,7 +431,6 @@ if st.button(
                     passage=passage.strip()
                 )
 
-
             if error:
 
                 st.error(error)
@@ -456,7 +474,6 @@ if st.button(
                     BytesIO(image_bytes)
                 )
 
-
                 with st.spinner(
                     "🤖 AI가 사진 속 지문을 읽고 분석하고 있어요..."
                 ):
@@ -464,7 +481,6 @@ if st.button(
                     result, error = analyze_with_ai(
                         image=image
                     )
-
 
                 if error:
 
@@ -483,7 +499,6 @@ if st.button(
                     st.success(
                         "✨ 사진 속 지문 분석이 완료되었습니다!"
                     )
-
 
             except Exception as e:
 
@@ -510,7 +525,6 @@ if st.session_state.analysis_result is not None:
     # -------------------------
     col1, col2 = st.columns(2)
 
-
     with col1:
 
         st.markdown(
@@ -520,7 +534,6 @@ if st.session_state.analysis_result is not None:
         st.info(
             result["korean_title"]
         )
-
 
     with col2:
 
@@ -549,7 +562,6 @@ if st.session_state.analysis_result is not None:
     # 중요 단어
     # -------------------------
     col1, col2 = st.columns(2)
-
 
     with col1:
 
@@ -589,7 +601,6 @@ if st.session_state.analysis_result is not None:
 
     keyword_cols = st.columns(3)
 
-
     for i, keyword in enumerate(
         result["keywords"][:3]
     ):
@@ -622,7 +633,6 @@ if st.session_state.analysis_result is not None:
         "📚 시험범위"
     )
 
-
     if st.button(
         "➕ 내 시험범위에 저장",
         use_container_width=True
@@ -632,7 +642,6 @@ if st.session_state.analysis_result is not None:
             st.session_state.current_passage,
             result
         )
-
 
         if saved:
 
@@ -656,13 +665,11 @@ st.subheader(
     "📚 내 시험범위"
 )
 
-
 if len(st.session_state.exam_scope) == 0:
 
     st.caption(
         "아직 저장된 지문이 없습니다."
     )
-
 
 else:
 
@@ -676,7 +683,6 @@ else:
 
             saved_result = item["result"]
 
-
             st.markdown(
                 "### 🇰🇷 한글 제목"
             )
@@ -684,7 +690,6 @@ else:
             st.write(
                 saved_result["korean_title"]
             )
-
 
             st.markdown(
                 "### 🇺🇸 English Title"
@@ -694,7 +699,6 @@ else:
                 saved_result["english_title"]
             )
 
-
             st.markdown(
                 "### 📌 내용 요약"
             )
@@ -702,7 +706,6 @@ else:
             st.write(
                 saved_result["summary"]
             )
-
 
             st.markdown(
                 "### 🔤 중요 단어"
@@ -714,7 +717,6 @@ else:
                     f"• {word}"
                 )
 
-
             st.markdown(
                 "### 📐 중요 문법"
             )
@@ -724,7 +726,6 @@ else:
                 st.write(
                     f"• {grammar}"
                 )
-
 
             st.markdown(
                 "### 🔑 핵심키워드"
@@ -736,7 +737,6 @@ else:
                 )
             )
 
-
             st.markdown(
                 "### 📄 원문"
             )
@@ -744,7 +744,6 @@ else:
             st.write(
                 item["passage"]
             )
-
 
             if st.button(
                 "🗑️ 이 지문 삭제",
