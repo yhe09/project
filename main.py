@@ -7,7 +7,7 @@ import json
 import time
 from logo_data import LOGO_DATA
 
-st.set_page_config(page_title="지문.zip", page_icon="📚", layout="wide")
+st.set_page_config(page_title="지문.zip", page_icon="logo.png", layout="wide")
 
 try:
     gemini_api_key = st.secrets["GEMINI_API_KEY"]
