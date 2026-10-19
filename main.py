@@ -30,9 +30,9 @@ RESULT_SCHEMA = {
         "logical_flow": {
             "type": "object",
             "properties": {
-                "beginning": {"type": "string", "description": "처음 부분의 주제·문제·상황 제시"},
-                "middle": {"type": "string", "description": "중간 부분의 핵심 주장·설명·근거 전개"},
-                "end": {"type": "string", "description": "끝부분의 결론·핵심 메시지"},
+                "beginning": {"type": "string", "description": "처음 부분의 주제·문제·상황 제시를 자연스럽게 의역한 설명"},
+                "middle": {"type": "string", "description": "중간 부분의 핵심 주장·설명·근거 전개를 자연스럽게 의역한 설명"},
+                "end": {"type": "string", "description": "끝부분의 결론·핵심 메시지를 자연스럽게 의역한 설명"},
                 "examples": {"type": "array", "items": {"type": "string"}, "description": "지문에 실제로 등장하는 예시. 없으면 빈 배열"}
             },
             "required": ["beginning", "middle", "end", "examples"]
@@ -65,13 +65,18 @@ SYSTEM_PROMPT = """
 12. 문법은 지문에 실제로 나타난 문법이나 표현을 선정한다.
 13. 사진 입력의 경우 사진 속 영어 문장을 최대한 정확하게 그대로 옮긴다.
 14. 논리 흐름은 문장별 번역이 아니라 '왜 다음 내용이 나오는지'가 보이도록 작성한다.
-15. 불필요하게 길게 쓰지 말고 시험 직전 복습에 적합한 정도로 압축한다.
+15. 논리 흐름은 영어 문장을 한국어로 직역하는 번역문이 아니라, 원문의 의미와 논리 관계를 학생이 이해하기 쉽게 설명하는 자연스러운 한국어 의역으로 작성한다.
+16. 영어의 비유적 표현, 관용 표현, 구어적 표현은 한국어 문맥에서 자연스럽게 이해되는 표현으로 바꾼다. 단어의 사전적 의미를 그대로 옮겼을 때 한국어로 어색하면 문맥상 의미를 우선한다.
+17. '쌈짓돈', '주머니 돈'처럼 영어 표현을 단어 그대로 옮긴 듯한 구어적·부자연스러운 표현은 피한다. 문맥에 맞게 '소액 자금', '개인의 소액 자금', '대중의 소액 투자금' 등 자연스럽고 정확한 표현을 선택한다.
+18. 의역하더라도 원문에 없는 새로운 사실, 사례, 주장, 평가를 추가하지 않는다. 자연스럽게 바꾸는 것과 내용을 새로 만드는 것을 구분한다.
+19. 논리 흐름의 각 단계는 시험 직전에 읽었을 때 글의 전개가 바로 떠오를 정도로 간결하게 작성한다.
+20. 불필요하게 길게 쓰지 말고 시험 직전 복습에 적합한 정도로 압축한다.
 
 결과 항목:
 original_text: 입력된 영어 지문 원문
 korean_title: 핵심 주제를 보여주는 자연스러운 한국어 제목
 english_title: 핵심 주제를 보여주는 자연스러운 영어 제목
-logical_flow: 처음·중간·끝의 논리적 전개와 실제 예시
+logical_flow: 처음·중간·끝의 논리적 전개를 자연스럽게 의역한 설명과 실제 예시
 key_sentence: 원문에 실제로 존재하는 핵심 주제문장 1개
 vocabulary: 중요한 영어 단어 5개, '영어 단어 - 한국어 뜻' 형식
 grammar: 중요한 문법 또는 표현 3개와 짧은 설명
@@ -251,14 +256,13 @@ else:
             st.markdown("**핵심 주제문장**")
             st.write(saved.get("key_sentence", ""))
             st.markdown("**논리 흐름**")
-            flow = saved.get("logical_flow", {})
-            st.write(f"처음: {flow.get('beginning', '')}")
-            st.write(f"중간: {flow.get('middle', '')}")
-            if flow.get("examples"):
-                for example in flow["examples"]:
-                    st.write(f"예시: {example}")
-            st.write(f"끝: {flow.get('end', '')}")
-            st.text_area("영어 원문", saved.get("original_text", ""), height=180, key=f"saved_text_{i}")
+            saved_flow = saved.get("logical_flow", {})
+            st.write("① 처음: " + saved_flow.get("beginning", ""))
+            st.write("② 중간: " + saved_flow.get("middle", ""))
+            if saved_flow.get("examples"):
+                for example in saved_flow["examples"]:
+                    st.write("예시: " + example)
+            st.write("③ 끝: " + saved_flow.get("end", ""))
             if st.button("🗑️ 삭제", key=f"delete_{i}"):
                 st.session_state.exam_scope.pop(i)
                 st.rerun()
