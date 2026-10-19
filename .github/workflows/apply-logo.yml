@@ -25,7 +25,7 @@ jobs:
           from pathlib import Path
 
           data = Path('logo_data.py').read_text(encoding='utf-8')
-          match = re.search(r'LOGO_DATA\s*=\s*[\'\"]data:image/[^;]+;base64,([^\'\"]+)', data)
+          match = re.search(r"LOGO_DATA\s*=\s*['\"]data:image/[^;]+;base64,([^'\"]+)", data)
           if not match:
               raise SystemExit('LOGO_DATA not found')
           Path('logo.png').write_bytes(base64.b64decode(match.group(1)))
