@@ -5,6 +5,7 @@ from PIL import Image
 from io import BytesIO
 import json
 import time
+from logo_data import LOGO_DATA
 
 st.set_page_config(page_title="지문.zip", page_icon="📚", layout="wide")
 
@@ -140,7 +141,15 @@ def save_to_exam_scope(passage, result):
     st.session_state.exam_scope.append({"passage": passage, "result": result})
     return True
 
-st.title("📚 지문.zip")
+st.markdown(
+    f"""
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:0.5rem;">
+        <img src="{LOGO_DATA}" style="width:72px; height:72px; object-fit:contain;">
+        <span style="font-size:2.5rem; font-weight:700;">지문.zip</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 st.caption("영어 내신 지문을 한눈에 정리하다.")
 st.divider()
 
