@@ -5,8 +5,6 @@ from PIL import Image
 from io import BytesIO
 import json
 import time
-import html
-import re
 
 st.set_page_config(page_title="지문.zip", page_icon="📚", layout="wide")
 
@@ -39,9 +37,9 @@ RESULT_SCHEMA = {
             },
             "required": ["beginning", "middle", "end", "examples"]
         },
-        "key_sentence": {"type": "string", "description": "지문의 주제를 가장 잘 보여주는 문장 1개. 반드시 원문에 실제로 존재하는 문장을 그대로 반환"},
+        "key_sentence": {"type": "string", "description": "지문의 주제를 가장 잘 보여주는 원문 문장 1개"},
         "vocabulary": {"type": "array", "items": {"type": "string"}, "description": "내신에 중요한 영어 단어와 한국어 뜻 5개"},
-        "grammar": {"type": "array", "items": {"type": "string"}, "description": "지문에서 중요한 문법 또는 표현 3개와 간단한 설명"},
+        "grammar": {"type": "array", "items": {"type": "string"}, "description": "지문에서 중요한 문법 또는 표현 3개와 설명"},
         "keywords": {"type": "array", "items": {"type": "string"}, "description": "지문 전체 내용을 기억하기 위한 핵심 키워드 3개"}
     },
     "required": ["original_text", "korean_title", "english_title", "logical_flow", "key_sentence", "vocabulary", "grammar", "keywords"]
@@ -50,7 +48,7 @@ RESULT_SCHEMA = {
 SYSTEM_PROMPT = """
 너는 영어 내신 지문을 분석하는 학습 보조 AI이다.
 
-이 서비스의 목적은 지문을 단순히 짧게 요약하는 것이 아니라, 학생이 시험 직전에 지문의 주제와 논리적 흐름을 빠르게 떠올릴 수 있도록 분석지를 만드는 것이다.
+목적은 지문을 단순히 짧게 요약하는 것이 아니라, 학생이 시험 직전에 지문의 주제와 논리적 흐름을 빠르게 떠올릴 수 있도록 분석지를 만드는 것이다.
 
 반드시 다음 원칙을 지킨다.
 1. 지문에 없는 내용을 임의로 추가하지 않는다.
@@ -59,13 +57,13 @@ SYSTEM_PROMPT = """
 4. 처음에는 주제·문제·상황이 어떻게 제시되는지 설명한다.
 5. 중간에는 핵심 주장, 설명, 근거가 어떤 관계로 이어지는지 설명한다.
 6. 끝에는 앞의 내용이 어떤 결론이나 핵심 메시지로 이어지는지 설명한다.
-7. 지문에 실제 예시가 있는 경우 examples에 넣고, 그 예시가 무엇을 설명하거나 뒷받침하는지도 논리 흐름에 반영한다.
-8. 지문에 예시가 없으면 examples는 빈 배열로 둔다. 예시를 새로 만들어내지 않는다.
-9. key_sentence는 AI가 새로 만든 문장이 아니라 반드시 원문에 실제로 존재하는 문장 그대로 반환한다.
+7. 지문에 실제 예시가 있는 경우 examples에 넣고, 그 예시가 무엇을 설명하거나 뒷받침하는지도 반영한다.
+8. 지문에 예시가 없으면 examples는 빈 배열로 둔다. 예시를 새로 만들지 않는다.
+9. key_sentence는 새로 만든 문장이 아니라 반드시 원문에 실제로 존재하는 문장을 그대로 반환한다.
 10. 여러 문장이 핵심이면 주제를 가장 직접적으로 드러내는 원문 문장 1개를 선택한다.
 11. 영어 단어는 지문에 실제로 등장하거나 지문 이해에 직접적으로 중요한 단어를 선정한다.
 12. 문법은 지문에 실제로 나타난 문법이나 표현을 선정한다.
-13. 사진으로 입력된 경우 사진 속 영어 문장을 최대한 정확하게 그대로 옮긴다.
+13. 사진 입력의 경우 사진 속 영어 문장을 최대한 정확하게 그대로 옮긴다.
 14. 논리 흐름은 문장별 번역이 아니라 '왜 다음 내용이 나오는지'가 보이도록 작성한다.
 15. 불필요하게 길게 쓰지 말고 시험 직전 복습에 적합한 정도로 압축한다.
 
@@ -112,11 +110,9 @@ def analyze_with_ai(passage=None, image=None):
     if client is None:
         return None, "Gemini API 키가 설정되지 않았습니다."
     if passage is not None:
-        prompt = SYSTEM_PROMPT + "\n\n다음 영어 지문을 분석해줘.\n\n" + passage
-        response, error = generate_with_gemini(prompt)
+        response, error = generate_with_gemini(SYSTEM_PROMPT + "\n\n다음 영어 지문을 분석해줘.\n\n" + passage)
     elif image is not None:
-        prompt = SYSTEM_PROMPT + "\n\n첨부된 사진 속 영어 지문을 읽고 분석해줘."
-        response, error = generate_with_gemini([prompt, image])
+        response, error = generate_with_gemini([SYSTEM_PROMPT + "\n\n첨부된 사진 속 영어 지문을 읽고 분석해줘.", image])
     else:
         return None, "분석할 지문이 없습니다."
     if error:
@@ -129,32 +125,6 @@ def analyze_with_ai(passage=None, image=None):
         if key not in result:
             return None, f"AI 분석 결과에 '{key}' 항목이 없습니다."
     return result, None
-
-def make_highlighted_text(original_text, key_sentence):
-    if not original_text:
-        return ""
-    escaped_text = html.escape(original_text)
-    escaped_key = html.escape(key_sentence.strip()) if key_sentence else ""
-    if escaped_key and escaped_key in escaped_text:
-        highlighted = escaped_text.replace(escaped_key, f'<mark style="background-color:#fff176; padding:2px 4px; border-radius:4px;">{escaped_key}</mark>', 1)
-    else:
-        normalized_key = re.sub(r"\s+", " ", key_sentence.strip()) if key_sentence else ""
-        normalized_text = re.sub(r"\s+", " ", original_text)
-        if normalized_key and normalized_key in normalized_text:
-            pattern = re.escape(normalized_key).replace(r"\ ", r"\s+")
-            match = re.search(pattern, original_text, flags=re.DOTALL)
-            if match:
-                start, end = match.span()
-                highlighted = (
-                    html.escape(original_text[:start])
-                    + f'<mark style="background-color:#fff176; padding:2px 4px; border-radius:4px;">{html.escape(original_text[start:end])}</mark>'
-                    + html.escape(original_text[end:])
-                )
-            else:
-                highlighted = escaped_text
-        else:
-            highlighted = escaped_text
-    return '<div style="white-space:pre-wrap; line-height:1.8; font-size:16px;">' + highlighted + '</div>'
 
 def save_to_exam_scope(passage, result):
     if not passage.strip():
@@ -256,29 +226,39 @@ if st.session_state.analysis_result is not None:
             st.info(keyword)
 
     st.markdown("### 📖 영어 원문 보기")
-    with st.expander("원문 펼쳐보기"):
-        st.caption("🟨 형광펜 표시 = 핵심 주제문장")
-        st.markdown(make_highlighted_text(result["original_text"], result["key_sentence"]), unsafe_allow_html=True)
+    with st.expander("원문 펼쳐보기", expanded=True):
+        st.caption("입력하거나 사진에서 추출한 영어 원문입니다.")
+        st.text(result["original_text"])
 
     st.divider()
-    st.markdown("### 📚 시험범위")
-    if st.button("➕ 현재 지문을 시험범위에 저장", use_container_width=True):
-        saved = save_to_exam_scope(st.session_state.current_passage, result)
-        if saved:
+    if st.button("📌 시험범위에 저장", use_container_width=True):
+        if save_to_exam_scope(st.session_state.current_passage, result):
             st.success("시험범위에 저장했습니다!")
         else:
-            st.warning("이미 시험범위에 저장된 지문입니다.")
+            st.warning("이미 저장된 지문입니다.")
 
 st.divider()
-st.subheader("📚 저장된 시험범위")
+st.subheader("📚 내 시험범위")
+
 if not st.session_state.exam_scope:
-    st.caption("아직 저장된 지문이 없습니다.")
+    st.info("아직 저장된 지문이 없습니다.")
 else:
     for i, item in enumerate(st.session_state.exam_scope):
-        saved_result = item["result"]
-        with st.expander(f"{i + 1}. {saved_result['korean_title']}"):
-            st.write(saved_result["english_title"])
-            st.write(saved_result["key_sentence"])
+        saved = item["result"]
+        title = saved.get("korean_title", "저장된 지문")
+        with st.expander(f"{i + 1}. {title}"):
+            st.markdown(f"**English Title:** {saved.get('english_title', '')}")
+            st.markdown("**핵심 주제문장**")
+            st.write(saved.get("key_sentence", ""))
+            st.markdown("**논리 흐름**")
+            flow = saved.get("logical_flow", {})
+            st.write(f"처음: {flow.get('beginning', '')}")
+            st.write(f"중간: {flow.get('middle', '')}")
+            if flow.get("examples"):
+                for example in flow["examples"]:
+                    st.write(f"예시: {example}")
+            st.write(f"끝: {flow.get('end', '')}")
+            st.text_area("영어 원문", saved.get("original_text", ""), height=180, key=f"saved_text_{i}")
             if st.button("🗑️ 삭제", key=f"delete_{i}"):
                 st.session_state.exam_scope.pop(i)
                 st.rerun()
