@@ -4,6 +4,7 @@ from google.genai import types
 from PIL import Image
 from io import BytesIO
 from streamlit_cropper import st_cropper
+from streamlit_local_storage import LocalStorage
 import json
 import time
 from logo_data import LOGO_DATA
@@ -16,8 +17,25 @@ try:
 except Exception:
     client = None
 
+localS = LocalStorage()
+
 if "exam_scope" not in st.session_state:
     st.session_state.exam_scope = []
+if "exam_scope_storage_loaded" not in st.session_state:
+    st.session_state.exam_scope_storage_loaded = False
+if not st.session_state.exam_scope_storage_loaded:
+    localS.getItem("exam_scope", key="exam_scope_storage")
+    if "exam_scope_storage" in st.session_state:
+        stored_exam_scope = st.session_state.exam_scope_storage
+        if stored_exam_scope:
+            try:
+                loaded_exam_scope = json.loads(stored_exam_scope)
+                if isinstance(loaded_exam_scope, list):
+                    st.session_state.exam_scope = loaded_exam_scope
+            except (json.JSONDecodeError, TypeError):
+                st.session_state.exam_scope = []
+        st.session_state.exam_scope_storage_loaded = True
+
 if "current_passage" not in st.session_state:
     st.session_state.current_passage = ""
 if "analysis_result" not in st.session_state:
@@ -147,6 +165,9 @@ def optimize_image(image):
     image.save(buffer, format="JPEG", quality=92, optimize=True)
     return Image.open(BytesIO(buffer.getvalue())), buffer.getvalue()
 
+def persist_exam_scope():
+    localS.setItem("exam_scope", json.dumps(st.session_state.exam_scope, ensure_ascii=False))
+
 def save_to_exam_scope(passage, result):
     if not passage.strip():
         return False
@@ -154,6 +175,7 @@ def save_to_exam_scope(passage, result):
         if item["passage"] == passage:
             return False
     st.session_state.exam_scope.append({"passage": passage, "result": result})
+    persist_exam_scope()
     return True
 
 st.markdown(
@@ -304,4 +326,5 @@ else:
             st.write("③ 끝: " + saved_flow.get("end", ""))
             if st.button("🗑️ 삭제", key=f"delete_{i}"):
                 st.session_state.exam_scope.pop(i)
+                persist_exam_scope()
                 st.rerun()
