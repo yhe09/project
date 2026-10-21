@@ -21,6 +21,10 @@ if "current_passage" not in st.session_state:
     st.session_state.current_passage = ""
 if "analysis_result" not in st.session_state:
     st.session_state.analysis_result = None
+if "uploaded_image_bytes" not in st.session_state:
+    st.session_state.uploaded_image_bytes = None
+if "uploaded_image_name" not in st.session_state:
+    st.session_state.uploaded_image_name = ""
 
 RESULT_SCHEMA = {
     "type": "object",
@@ -159,12 +163,17 @@ passage = ""
 uploaded_image = None
 
 if input_method == "직접 입력":
+    st.session_state.uploaded_image_bytes = None
     passage = st.text_area("분석할 영어 지문을 입력하세요.", height=260, placeholder="영어 지문을 여기에 붙여넣어 주세요.")
 else:
     uploaded_image = st.file_uploader("영어 지문 사진을 업로드하세요.", type=["png", "jpg", "jpeg"], help="영어 지문이 잘 보이도록 사진을 업로드하세요.")
     if uploaded_image is not None:
+        st.session_state.uploaded_image_bytes = uploaded_image.getvalue()
+        st.session_state.uploaded_image_name = uploaded_image.name
         st.image(uploaded_image, caption="업로드한 지문", use_container_width=True)
         st.info("사진 속 영어 지문을 AI가 직접 읽고 분석합니다.")
+    elif st.session_state.uploaded_image_bytes is not None:
+        st.info(f"사진이 준비되어 있습니다: {st.session_state.uploaded_image_name}")
 
 if st.button("✨ 지문 분석하기", use_container_width=True, type="primary"):
     if input_method == "직접 입력":
@@ -182,11 +191,12 @@ if st.button("✨ 지문 분석하기", use_container_width=True, type="primary"
                 st.session_state.analysis_result = result
                 st.success("✨ 지문 분석이 완료되었습니다!")
     else:
-        if uploaded_image is None:
+        image_bytes = st.session_state.uploaded_image_bytes
+        if image_bytes is None:
             st.warning("먼저 영어 지문 사진을 업로드해주세요.")
         else:
             try:
-                image = Image.open(BytesIO(uploaded_image.getvalue()))
+                image = Image.open(BytesIO(image_bytes))
                 with st.spinner("🤖 AI가 사진 속 지문의 주제와 논리 흐름을 분석하고 있어요..."):
                     result, error = analyze_with_ai(image=image)
                 if error:
