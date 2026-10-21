@@ -3,6 +3,7 @@ from google import genai
 from google.genai import types
 from PIL import Image
 from io import BytesIO
+from streamlit_cropper import st_cropper
 import json
 import time
 from logo_data import LOGO_DATA
@@ -136,6 +137,16 @@ def analyze_with_ai(passage=None, image=None):
             return None, f"AI 분석 결과에 '{key}' 항목이 없습니다."
     return result, None
 
+def optimize_image(image):
+    image = image.convert("RGB")
+    max_side = 2800
+    if max(image.size) > max_side:
+        ratio = max_side / max(image.size)
+        image = image.resize((int(image.width * ratio), int(image.height * ratio)), Image.Resampling.LANCZOS)
+    buffer = BytesIO()
+    image.save(buffer, format="JPEG", quality=92, optimize=True)
+    return Image.open(BytesIO(buffer.getvalue())), buffer.getvalue()
+
 def save_to_exam_scope(passage, result):
     if not passage.strip():
         return False
@@ -159,6 +170,7 @@ st.divider()
 
 st.subheader("📝 영어 지문")
 input_method = st.radio("지문 입력 방법", ["직접 입력", "사진 업로드"], horizontal=True)
+st.caption("⚡ 빠른 분석을 원한다면 직접 입력을 추천해요. 사진 업로드는 이미지 처리 과정이 추가되어 조금 더 시간이 걸릴 수 있어요.")
 passage = ""
 uploaded_image = None
 
@@ -168,10 +180,18 @@ if input_method == "직접 입력":
 else:
     uploaded_image = st.file_uploader("영어 지문 사진을 업로드하세요.", type=["png", "jpg", "jpeg"], help="영어 지문이 잘 보이도록 사진을 업로드하세요.")
     if uploaded_image is not None:
-        st.session_state.uploaded_image_bytes = uploaded_image.getvalue()
-        st.session_state.uploaded_image_name = uploaded_image.name
-        st.image(uploaded_image, caption="업로드한 지문", use_container_width=True)
-        st.info("사진 속 영어 지문을 AI가 직접 읽고 분석합니다.")
+        try:
+            original_image = Image.open(uploaded_image)
+            st.session_state.uploaded_image_name = uploaded_image.name
+            st.markdown("**✂️ 지문 영역을 맞춰주세요**")
+            st.caption("영어 지문이 포함된 부분만 남기면 인식과 분석이 더 효율적이에요.")
+            cropped_image = st_cropper(original_image, realtime_update=True, box_color="#ff5a5f", aspect_ratio=None, return_type="image")
+            optimized_image, optimized_bytes = optimize_image(cropped_image)
+            st.session_state.uploaded_image_bytes = optimized_bytes
+            st.image(optimized_image, caption="AI 분석에 사용할 이미지", use_container_width=True)
+            st.info("사진 속 영어 지문을 AI가 직접 읽고 분석합니다. 글자가 흐려지지 않도록 인식에 필요한 해상도는 유지해요.")
+        except Exception as e:
+            st.error("사진을 처리하는 중 오류가 발생했습니다: " + str(e))
     elif st.session_state.uploaded_image_bytes is not None:
         st.info(f"사진이 준비되어 있습니다: {st.session_state.uploaded_image_name}")
 
