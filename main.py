@@ -114,7 +114,7 @@ def generate_with_gemini(contents):
                     break
                 if "429" in error_message or "quota" in error_message.lower() or "resource exhausted" in error_message.lower():
                     return None, "Gemini 무료 사용량 또는 요청 한도에 도달했어요. 잠시 후 다시 시도해주세요."
-                return None, "AI 분석 중 오류가 발생했습니다.\n\n" + error_message
+                return None, "AI 분석 중 오류가 발생했습니다.\n\n오류 내용: " + error_message
     return None, "현재 Gemini AI 서버가 혼잡해서 분석을 완료하지 못했어요.\n\n잠시 후 다시 '지문 분석하기'를 눌러주세요."
 
 def analyze_with_ai(passage=None, image=None):
@@ -131,10 +131,10 @@ def analyze_with_ai(passage=None, image=None):
     try:
         result = json.loads(response.text)
     except Exception:
-        return None, "AI의 분석 결과를 읽는 중 오류가 발생했습니다."
+        return None, "AI의 분석 결과를 읽는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
     for key in ["original_text", "korean_title", "english_title", "logical_flow", "key_sentence", "vocabulary", "grammar", "keywords"]:
         if key not in result:
-            return None, f"AI 분석 결과에 '{key}' 항목이 없습니다."
+            return None, f"AI 분석 결과에 '{key}' 항목이 없습니다. 다시 분석해주세요."
     return result, None
 
 def optimize_image(image):
@@ -198,14 +198,18 @@ else:
 if st.button("✨ 지문 분석하기", use_container_width=True, type="primary"):
     if input_method == "직접 입력":
         if not passage.strip():
-            st.warning("먼저 영어 지문을 입력해주세요.")
+            st.session_state.analysis_result = None
+            st.session_state.current_passage = ""
+            st.warning("⚠️ 분석할 영어 지문이 없습니다. 지문을 입력한 후 다시 눌러주세요.")
         elif len(passage.strip()) < 10:
-            st.warning("지문이 너무 짧습니다. 영어 지문을 조금 더 입력해주세요.")
+            st.warning("⚠️ 지문이 너무 짧습니다. 영어 지문을 조금 더 입력해주세요.")
         else:
             with st.spinner("🤖 AI가 지문의 주제와 논리 흐름을 분석하고 있어요..."):
                 result, error = analyze_with_ai(passage=passage.strip())
             if error:
-                st.error(error)
+                st.error("❌ AI 분석에 실패했습니다.")
+                st.caption(error)
+                st.info("잠시 후 다시 '지문 분석하기'를 눌러주세요.")
             else:
                 st.session_state.current_passage = result["original_text"]
                 st.session_state.analysis_result = result
@@ -213,20 +217,25 @@ if st.button("✨ 지문 분석하기", use_container_width=True, type="primary"
     else:
         image_bytes = st.session_state.uploaded_image_bytes
         if image_bytes is None:
-            st.warning("먼저 영어 지문 사진을 업로드해주세요.")
+            st.session_state.analysis_result = None
+            st.session_state.current_passage = ""
+            st.warning("⚠️ 먼저 영어 지문 사진을 업로드해주세요.")
         else:
             try:
                 image = Image.open(BytesIO(image_bytes))
                 with st.spinner("🤖 AI가 사진 속 지문의 주제와 논리 흐름을 분석하고 있어요..."):
                     result, error = analyze_with_ai(image=image)
                 if error:
-                    st.error(error)
+                    st.error("❌ 사진 속 지문 AI 분석에 실패했습니다.")
+                    st.caption(error)
+                    st.info("사진의 글자가 잘 보이는지 확인한 후 다시 시도해주세요.")
                 else:
                     st.session_state.current_passage = result["original_text"]
                     st.session_state.analysis_result = result
                     st.success("✨ 사진 속 지문 분석이 완료되었습니다!")
             except Exception as e:
-                st.error("사진을 처리하는 중 오류가 발생했습니다: " + str(e))
+                st.error("❌ 사진을 처리하는 중 오류가 발생했습니다.")
+                st.caption("오류 내용: " + str(e))
 
 if st.session_state.analysis_result is not None:
     result = st.session_state.analysis_result
