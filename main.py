@@ -291,19 +291,20 @@ if st.session_state.analysis_result is not None:
             st.warning("이미 저장된 지문입니다.")
 
 st.divider()
-st.subheader("📚 내 시험범위")
+st.subheader(f"📚 내 시험범위 ({len(st.session_state.exam_scope)}개)")
 
 if not st.session_state.exam_scope:
     st.info("아직 저장된 지문이 없습니다.")
 else:
+    st.caption("저장한 지문을 다시 펼쳐서 제목, 주제문장, 논리 흐름, 어휘·문법, 원문을 확인할 수 있어요.")
     for i, item in enumerate(st.session_state.exam_scope):
         saved = item["result"]
         title = saved.get("korean_title", "저장된 지문")
         with st.expander(f"{i + 1}. {title}"):
             st.markdown(f"**English Title:** {saved.get('english_title', '')}")
-            st.markdown("**핵심 주제문장**")
+            st.markdown("**📌 핵심 주제문장**")
             st.write(saved.get("key_sentence", ""))
-            st.markdown("**논리 흐름**")
+            st.markdown("**🧭 논리 흐름**")
             saved_flow = saved.get("logical_flow", {})
             st.write("① 처음: " + saved_flow.get("beginning", ""))
             st.write("② 중간: " + saved_flow.get("middle", ""))
@@ -311,6 +312,18 @@ else:
                 for example in saved_flow["examples"]:
                     st.write("예시: " + example)
             st.write("③ 끝: " + saved_flow.get("end", ""))
+
+            st.markdown("**🔤 중요 단어**")
+            for word in saved.get("vocabulary", []):
+                st.write(f"• {word}")
+
+            st.markdown("**📐 중요 문법**")
+            for grammar in saved.get("grammar", []):
+                st.write(f"• {grammar}")
+
+            with st.expander("📖 영어 원문 보기"):
+                st.text(saved.get("original_text", item.get("passage", "")))
+
             if st.button("🗑️ 삭제", key=f"delete_{i}"):
                 st.session_state.exam_scope.pop(i)
                 st.rerun()
