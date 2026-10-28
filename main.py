@@ -4,6 +4,7 @@ from google.genai import types
 from PIL import Image
 from io import BytesIO
 from streamlit_cropper import st_cropper
+from streamlit_local_storage import LocalStorage
 import json
 import time
 from logo_data import LOGO_DATA
@@ -16,8 +17,17 @@ try:
 except Exception:
     client = None
 
+try:
+    local_storage = LocalStorage()
+except Exception:
+    local_storage = None
+
 if "exam_scope" not in st.session_state:
     st.session_state.exam_scope = []
+if "exam_scope_storage_loaded" not in st.session_state:
+    st.session_state.exam_scope_storage_loaded = False
+if "exam_scope_storage_attempts" not in st.session_state:
+    st.session_state.exam_scope_storage_attempts = 0
 if "current_passage" not in st.session_state:
     st.session_state.current_passage = ""
 if "analysis_result" not in st.session_state:
@@ -26,6 +36,42 @@ if "uploaded_image_bytes" not in st.session_state:
     st.session_state.uploaded_image_bytes = None
 if "uploaded_image_name" not in st.session_state:
     st.session_state.uploaded_image_name = ""
+
+EXAM_SCOPE_STORAGE_KEY = "jipmunzip_exam_scope"
+
+
+def load_exam_scope_from_browser():
+    if local_storage is None or st.session_state.exam_scope_storage_loaded:
+        return
+    try:
+        saved_scope = local_storage.getItem(EXAM_SCOPE_STORAGE_KEY)
+        st.session_state.exam_scope_storage_attempts += 1
+        if saved_scope:
+            if isinstance(saved_scope, str):
+                saved_scope = json.loads(saved_scope)
+            if isinstance(saved_scope, list):
+                st.session_state.exam_scope = saved_scope
+            st.session_state.exam_scope_storage_loaded = True
+        elif st.session_state.exam_scope_storage_attempts >= 2:
+            st.session_state.exam_scope_storage_loaded = True
+    except Exception:
+        st.session_state.exam_scope_storage_loaded = True
+
+
+def save_exam_scope_to_browser():
+    if local_storage is None:
+        return False
+    try:
+        local_storage.setItem(
+            EXAM_SCOPE_STORAGE_KEY,
+            json.dumps(st.session_state.exam_scope, ensure_ascii=False),
+        )
+        return True
+    except Exception:
+        return False
+
+
+load_exam_scope_from_browser()
 
 RESULT_SCHEMA = {
     "type": "object",
@@ -154,6 +200,7 @@ def save_to_exam_scope(passage, result):
         if item["passage"] == passage:
             return False
     st.session_state.exam_scope.append({"passage": passage, "result": result})
+    save_exam_scope_to_browser()
     return True
 
 st.markdown(
@@ -326,4 +373,5 @@ else:
 
             if st.button("🗑️ 삭제", key=f"delete_{i}"):
                 st.session_state.exam_scope.pop(i)
+                save_exam_scope_to_browser()
                 st.rerun()
