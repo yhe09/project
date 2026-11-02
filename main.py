@@ -70,7 +70,7 @@ def save_exam_scope_to_browser():
     except Exception:
         return False
 
-
+# 브라우저에 저장된 시험범위를 불러온다.
 load_exam_scope_from_browser()
 
 RESULT_SCHEMA = {
@@ -162,7 +162,8 @@ def generate_with_gemini(contents):
                     return None, "Gemini 무료 사용량 또는 요청 한도에 도달했어요. 잠시 후 다시 시도해주세요."
                 return None, "AI 분석 중 오류가 발생했습니다.\n\n오류 내용: " + error_message
     return None, "현재 Gemini AI 서버가 혼잡해서 분석을 완료하지 못했어요.\n\n잠시 후 다시 '지문 분석하기'를 눌러주세요."
-
+    
+# Gemini API를 호출해 영어 지문을 분석한다.
 def analyze_with_ai(passage=None, image=None):
     if client is None:
         return None, "Gemini API 키가 설정되지 않았습니다."
@@ -192,7 +193,8 @@ def optimize_image(image):
     buffer = BytesIO()
     image.save(buffer, format="JPEG", quality=92, optimize=True)
     return Image.open(BytesIO(buffer.getvalue())), buffer.getvalue()
-
+    
+# 분석한 지문을 시험범위에 저장하고 브라우저에도 저장한다.
 def save_to_exam_scope(passage, result):
     if not passage.strip():
         return False
