@@ -36,6 +36,10 @@ if "uploaded_image_bytes" not in st.session_state:
     st.session_state.uploaded_image_bytes = None
 if "uploaded_image_name" not in st.session_state:
     st.session_state.uploaded_image_name = ""
+if "uploaded_image_signature" not in st.session_state:
+    st.session_state.uploaded_image_signature = ""
+if "photo_rotation" not in st.session_state:
+    st.session_state.photo_rotation = 0
 
 EXAM_SCOPE_STORAGE_KEY = "jipmunzip_exam_scope"
 
@@ -230,11 +234,28 @@ else:
     uploaded_image = st.file_uploader("영어 지문 사진을 업로드하세요.", type=["png", "jpg", "jpeg"], help="영어 지문이 잘 보이도록 사진을 업로드하세요.")
     if uploaded_image is not None:
         try:
+            image_signature = f"{uploaded_image.name}:{uploaded_image.size}"
+            if st.session_state.uploaded_image_signature != image_signature:
+                st.session_state.uploaded_image_signature = image_signature
+                st.session_state.uploaded_image_bytes = None
+                st.session_state.photo_rotation = 0
+
             # 아이폰 사진의 회전 정보를 반영해 올바른 방향으로 표시한다.
             original_image = ImageOps.exif_transpose(Image.open(uploaded_image)).convert("RGB")
             st.session_state.uploaded_image_name = uploaded_image.name
             st.markdown("**✂️ 지문 영역을 맞춰주세요**")
-            st.caption("화면에서 손가락으로 영역을 이동하거나 모서리를 조절한 뒤, 아래 버튼을 눌러주세요.")
+            st.caption("사진이 옆으로 누워 있다면 회전하고, 손가락으로 지문 영역을 조절한 뒤 완료를 눌러주세요.")
+
+            rotate_left, rotate_right = st.columns(2)
+            with rotate_left:
+                if st.button("↶ 왼쪽으로 90° 회전", use_container_width=True):
+                    st.session_state.photo_rotation = (st.session_state.photo_rotation - 90) % 360
+            with rotate_right:
+                if st.button("↷ 오른쪽으로 90° 회전", use_container_width=True):
+                    st.session_state.photo_rotation = (st.session_state.photo_rotation + 90) % 360
+
+            if st.session_state.photo_rotation:
+                original_image = original_image.rotate(st.session_state.photo_rotation, expand=True)
 
             # 모바일 터치 조작을 지원하는 크롭 화면을 열고, 완료 버튼을 눌렀을 때 잘라낸 이미지를 받는다.
             image_buffer = BytesIO()
@@ -242,7 +263,7 @@ else:
             cropped_bytes = st_cropperjs(
                 pic=image_buffer.getvalue(),
                 btn_text="자르기 완료",
-                key=f"passage_cropper_{uploaded_image.name}_{uploaded_image.size}",
+                key=f"passage_cropper_{image_signature}_{st.session_state.photo_rotation}",
             )
 
             if cropped_bytes:
