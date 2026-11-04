@@ -2,6 +2,7 @@ import streamlit as st
 from google import genai
 from google.genai import types
 from PIL import Image, ImageOps
+import pytesseract
 from io import BytesIO
 from streamlit_cropperjs import st_cropperjs
 from streamlit_local_storage import LocalStorage
@@ -40,6 +41,10 @@ if "uploaded_image_signature" not in st.session_state:
     st.session_state.uploaded_image_signature = ""
 if "photo_rotation" not in st.session_state:
     st.session_state.photo_rotation = 0
+if "ocr_text_editor" not in st.session_state:
+    st.session_state.ocr_text_editor = ""
+if "ocr_done" not in st.session_state:
+    st.session_state.ocr_done = False
 
 EXAM_SCOPE_STORAGE_KEY = "jipmunzip_exam_scope"
 
@@ -239,6 +244,8 @@ else:
                 st.session_state.uploaded_image_signature = image_signature
                 st.session_state.uploaded_image_bytes = None
                 st.session_state.photo_rotation = 0
+                st.session_state.ocr_text_editor = ""
+                st.session_state.ocr_done = False
 
             # 아이폰 사진의 회전 정보를 반영해 올바른 방향으로 표시한다.
             original_image = ImageOps.exif_transpose(Image.open(uploaded_image)).convert("RGB")
@@ -269,7 +276,10 @@ else:
             if cropped_bytes:
                 cropped_image = Image.open(BytesIO(cropped_bytes))
                 optimized_image, optimized_bytes = optimize_image(cropped_image)
-                st.session_state.uploaded_image_bytes = optimized_bytes
+                if optimized_bytes != st.session_state.uploaded_image_bytes:
+                    st.session_state.uploaded_image_bytes = optimized_bytes
+                    st.session_state.ocr_text_editor = ""
+                    st.session_state.ocr_done = False
                 st.success("사진 영역을 선택했어요!")
             elif st.session_state.uploaded_image_bytes is None:
                 st.info("사진에서 영어 지문이 있는 부분을 선택하고 '자르기 완료'를 눌러주세요.")
@@ -278,6 +288,30 @@ else:
                 preview_image = Image.open(BytesIO(st.session_state.uploaded_image_bytes))
                 st.image(preview_image, caption="AI 분석에 사용할 이미지", use_container_width=True)
                 st.info("선택한 영역을 확인한 뒤 '지문 분석하기'를 눌러주세요. 글자가 선명할수록 인식이 정확해요.")
+                st.markdown("**🔎 사진에서 영어 글자 추출**")
+                st.caption("사진 속 글자를 먼저 인식해요. 추출된 문장은 직접 수정할 수 있어요.")
+                if st.button("영어 글자 추출하기", use_container_width=True):
+                    try:
+                        with st.spinner("사진에서 영어 글자를 읽고 있어요..."):
+                            ocr_image = Image.open(BytesIO(st.session_state.uploaded_image_bytes)).convert("L")
+                            ocr_image = ImageOps.autocontrast(ocr_image)
+                            if ocr_image.width < 1400:
+                                scale = 1400 / ocr_image.width
+                                ocr_image = ocr_image.resize((1400, int(ocr_image.height * scale)), Image.Resampling.LANCZOS)
+                            extracted_text = pytesseract.image_to_string(ocr_image, lang="eng", config="--oem 3 --psm 6").strip()
+                        st.session_state.ocr_text_editor = extracted_text
+                        st.session_state.ocr_done = True
+                        if extracted_text:
+                            st.success("영어 글자 추출이 완료됐어요! 아래 내용을 확인해주세요.")
+                        else:
+                            st.warning("글자를 인식하지 못했어요. 사진을 더 선명하게 자르거나 기존 사진 분석을 이용해주세요.")
+                    except pytesseract.TesseractNotFoundError:
+                        st.error("글자 인식 프로그램을 찾을 수 없어요. 앱 설치가 완료됐는지 잠시 후 다시 확인해주세요.")
+                    except Exception as e:
+                        st.error("글자를 추출하는 중 오류가 발생했어요: " + str(e))
+                if st.session_state.ocr_done:
+                    st.text_area("추출된 영어 지문 (필요하면 수정하세요)", key="ocr_text_editor", height=220)
+                    st.caption("수정한 내용이 AI 분석에 사용돼요.")
         except Exception as e:
             st.error("사진을 처리하는 중 오류가 발생했습니다: " + str(e))
     elif st.session_state.uploaded_image_bytes is not None:
@@ -312,9 +346,17 @@ if st.button("✨ 지문 분석하기", use_container_width=True, type="primary"
             st.warning("⚠️ 먼저 영어 지문 사진을 업로드해주세요.")
         else:
             try:
-                image = Image.open(BytesIO(image_bytes))
-                with st.spinner("🤖 AI가 사진 속 지문의 주제와 논리 흐름을 분석하고 있어요..."):
-                    result, error = analyze_with_ai(image=image)
+                if st.session_state.ocr_done:
+                    edited_passage = st.session_state.ocr_text_editor.strip()
+                    if not edited_passage:
+                        st.warning("⚠️ 추출된 글자가 비어 있어요. 글자를 다시 추출하거나 사진 분석을 이용해주세요.")
+                        st.stop()
+                    with st.spinner("🤖 AI가 추출된 영어 지문의 주제와 논리 흐름을 분석하고 있어요..."):
+                        result, error = analyze_with_ai(passage=edited_passage)
+                else:
+                    image = Image.open(BytesIO(image_bytes))
+                    with st.spinner("🤖 AI가 사진 속 지문의 주제와 논리 흐름을 분석하고 있어요..."):
+                        result, error = analyze_with_ai(image=image)
                 if error:
                     st.error("❌ 사진 속 지문 AI 분석에 실패했습니다.")
                     st.caption(error)
