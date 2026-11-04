@@ -1,9 +1,9 @@
 import streamlit as st
 from google import genai
 from google.genai import types
-from PIL import Image
+from PIL import Image, ImageOps
 from io import BytesIO
-from streamlit_cropper import st_cropper
+from streamlit_cropperjs import st_cropperjs
 from streamlit_local_storage import LocalStorage
 import json
 import time
@@ -230,19 +230,39 @@ else:
     uploaded_image = st.file_uploader("영어 지문 사진을 업로드하세요.", type=["png", "jpg", "jpeg"], help="영어 지문이 잘 보이도록 사진을 업로드하세요.")
     if uploaded_image is not None:
         try:
-            original_image = Image.open(uploaded_image)
+            # 아이폰 사진의 회전 정보를 반영해 올바른 방향으로 표시한다.
+            original_image = ImageOps.exif_transpose(Image.open(uploaded_image)).convert("RGB")
             st.session_state.uploaded_image_name = uploaded_image.name
             st.markdown("**✂️ 지문 영역을 맞춰주세요**")
-            st.caption("영어 지문이 포함된 부분만 남기면 인식과 분석이 더 효율적이에요.")
-            cropped_image = st_cropper(original_image, realtime_update=True, box_color="#ff5a5f", aspect_ratio=None, return_type="image")
-            optimized_image, optimized_bytes = optimize_image(cropped_image)
-            st.session_state.uploaded_image_bytes = optimized_bytes
-            st.image(optimized_image, caption="AI 분석에 사용할 이미지", use_container_width=True)
-            st.info("사진 속 영어 지문을 AI가 직접 읽고 분석합니다. 글자가 흐려지지 않도록 인식에 필요한 해상도는 유지해요.")
+            st.caption("화면에서 손가락으로 영역을 이동하거나 모서리를 조절한 뒤, 아래 버튼을 눌러주세요.")
+
+            # 모바일 터치 조작을 지원하는 크롭 화면을 열고, 완료 버튼을 눌렀을 때 잘라낸 이미지를 받는다.
+            image_buffer = BytesIO()
+            original_image.save(image_buffer, format="PNG")
+            cropped_bytes = st_cropperjs(
+                pic=image_buffer.getvalue(),
+                btn_text="자르기 완료",
+                key=f"passage_cropper_{uploaded_image.name}_{uploaded_image.size}",
+            )
+
+            if cropped_bytes:
+                cropped_image = Image.open(BytesIO(cropped_bytes))
+                optimized_image, optimized_bytes = optimize_image(cropped_image)
+                st.session_state.uploaded_image_bytes = optimized_bytes
+                st.success("사진 영역을 선택했어요!")
+            elif st.session_state.uploaded_image_bytes is None:
+                st.info("사진에서 영어 지문이 있는 부분을 선택하고 '자르기 완료'를 눌러주세요.")
+
+            if st.session_state.uploaded_image_bytes is not None:
+                preview_image = Image.open(BytesIO(st.session_state.uploaded_image_bytes))
+                st.image(preview_image, caption="AI 분석에 사용할 이미지", use_container_width=True)
+                st.info("선택한 영역을 확인한 뒤 '지문 분석하기'를 눌러주세요. 글자가 선명할수록 인식이 정확해요.")
         except Exception as e:
             st.error("사진을 처리하는 중 오류가 발생했습니다: " + str(e))
     elif st.session_state.uploaded_image_bytes is not None:
         st.info(f"사진이 준비되어 있습니다: {st.session_state.uploaded_image_name}")
+        preview_image = Image.open(BytesIO(st.session_state.uploaded_image_bytes))
+        st.image(preview_image, caption="AI 분석에 사용할 이미지", use_container_width=True)
 
 if st.button("✨ 지문 분석하기", use_container_width=True, type="primary"):
     if input_method == "직접 입력":
