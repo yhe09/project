@@ -3,3 +3,4 @@ google-genai
 pillow
 streamlit-local-storage
 streamlit-cropperjs==0.0.9
+pytesseract
